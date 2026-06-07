@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>教養ログ（試作）</title>
+<style>
+  :root{
+    --bg:#f5f3ee; --card:#ffffff; --ink:#2b2722; --sub:#8a8276;
+    --accent:#7a6a4f; --line:#e7e2d8; --good:#3c7a5a; --warn:#b6553f;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.8;
+    padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  }
+  header{
+    padding:16px 18px 12px; position:sticky; top:0; z-index:5;
+    background:rgba(245,243,238,.92); backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line);
+  }
+  h1{font-size:18px; margin:0; letter-spacing:.04em;}
+  .hint{font-size:12px; color:var(--sub); margin-top:2px;}
+  main{max-width:720px; margin:0 auto; padding:14px 14px 80px;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:14px;}
+  textarea{
+    width:100%; min-height:120px; border:1px solid var(--line); border-radius:10px;
+    padding:12px; font-size:16px; font-family:inherit; resize:vertical; background:#fcfbf9; color:var(--ink);
+  }
+  .label-sm{font-size:12px; color:var(--sub); margin:14px 0 8px;}
+  .chips{display:flex; flex-wrap:wrap; gap:8px;}
+  .chip{
+    font-size:13px; font-weight:600; padding:8px 12px; border-radius:999px;
+    border:1px solid var(--line); background:#fcfbf9; color:var(--sub); cursor:pointer;
+  }
+  .chip.on{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .row{display:flex; gap:10px; align-items:center; margin-top:14px;}
+  button{
+    appearance:none; border:none; border-radius:10px; padding:13px 16px; font-size:15px;
+    font-weight:600; color:#fff; background:var(--accent); flex:1; cursor:pointer;
+  }
+  button:disabled{opacity:.5;}
+  .genre-tag{display:inline-block; font-size:12px; font-weight:700; color:#fff; background:var(--accent); padding:3px 10px; border-radius:999px; letter-spacing:.04em;}
+  .out h2{font-size:19px; margin:12px 0 8px; line-height:1.5;}
+  .out .insight{font-size:16px;}
+  .out .meta{margin-top:14px; padding-top:12px; border-top:1px dashed var(--line); font-size:13px; color:var(--sub);}
+  .out .meta .glabel{color:var(--accent); font-weight:700; margin-right:4px;}
+  .out .apply{margin-top:8px; font-size:14.5px;}
+  .when{font-size:11px; color:var(--sub); margin-top:10px;}
+  .loading{font-size:14px; color:var(--sub); padding:8px 0;}
+  .spin{display:inline-block; width:14px; height:14px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; vertical-align:-2px; margin-right:6px;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  details.setup{margin-bottom:14px;}
+  details.setup summary{font-size:13px; color:var(--sub); cursor:pointer; padding:6px 0;}
+  input[type=password]{width:100%; border:1px solid var(--line); border-radius:10px; padding:11px; font-size:15px; margin-top:8px; background:#fcfbf9;}
+  .small{font-size:12px; color:var(--sub);}
+  .count{font-size:12px; color:var(--sub); text-align:center; margin:6px 0 0;}
+  .err{color:var(--warn); font-size:13px; margin-top:8px;}
+  .sectiontitle{font-size:12px; color:var(--sub); letter-spacing:.08em; margin:22px 4px 6px;}
+  .src-item{font-size:13px; color:var(--sub); padding:8px 0; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:10px;}
+  .src-item .stext{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .src-item .sg{flex:0 0 auto; font-size:11px; color:var(--accent); font-weight:700;}
+  .del{color:var(--warn); background:none; border:none; font-size:12px; padding:2px 6px; flex:0; width:auto; font-weight:600; cursor:pointer;}
+</style>
+</head>
+<body>
+<header>
+  <h1>教養ログ</h1>
+  <div class="hint">文字起こしを貼り、ジャンルを選んで保存 → そのジャンルの中から教訓が出ます</div>
+</header>
+
+<main>
+  <details class="setup" id="setup">
+    <summary>⚙️ Gemini APIキーの設定</summary>
+    <div class="card">
+      <div class="small">この端末にだけ保存されます（コードやネットには載りません）。<br>キーは Google AI Studio で無料取得できます。</div>
+      <input type="password" id="apiKey" placeholder="AIza... を貼り付け" autocomplete="off">
+      <div class="row">
+        <button id="saveKey">キーを保存</button>
+      </div>
+      <div class="small" id="keyState"></div>
+    </div>
+  </details>
+
+  <div class="card">
+    <textarea id="input" placeholder="ここに文字起こしを貼り付け"></textarea>
+    <div class="label-sm">このメモを入れるジャンル（タブ）</div>
+    <div class="chips" id="chips"></div>
+    <div class="row">
+      <button id="save">保存して教訓を出す</button>
+    </div>
+  </div>
+
+  <div id="result"></div>
+
+  <div class="count" id="count"></div>
+
+  <div class="sectiontitle" id="srcTitle" style="display:none">溜め込み（タップで削除可）</div>
+  <div id="sources"></div>
+</main>
+
+<script>
+const GENRES = ["人間・世間","知識・教養","地理・歴史","ビジネス・企業","AI・Tech"];
+const LS = {
+  key:"kyoyo_apikey", entries:"kyoyo_entries", outputs:"kyoyo_outputs", sel:"kyoyo_sel"
+};
+const $ = id => document.getElementById(id);
+const load = (k,def) => { try{return JSON.parse(localStorage.getItem(k)) ?? def;}catch(e){return def;} };
+const save = (k,v) => localStorage.setItem(k, JSON.stringify(v));
+const sleep = ms => new Promise(r=>setTimeout(r, ms));
+
+let entries = load(LS.entries, []);   // {id, text, genre, createdAt}
+let outputs = load(LS.outputs, []);   // {id, genre, title, insight, basis, apply, createdAt}
+let selected = load(LS.sel, GENRES[0]);
+
+// 旧データ（ジャンル無し）を移行
+let migrated=false;
+entries.forEach(e=>{ if(!e.genre){ e.genre = GENRES[0]; migrated=true; } });
+if(migrated) save(LS.entries, entries);
+
+function fmt(ts){ const d=new Date(ts); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
+function escapeHtml(s){ return String(s).replace(/[&<>]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m])); }
+
+function refreshKeyUI(){
+  const k = localStorage.getItem(LS.key);
+  if(k){ $("keyState").textContent = "✅ キー保存済み"; $("setup").open=false; }
+  else { $("keyState").textContent = "未設定（保存するまで動きません）"; $("setup").open=true; }
+}
+
+function renderChips(){
+  const wrap = $("chips"); wrap.innerHTML="";
+  GENRES.forEach(g=>{
+    const n = entries.filter(e=>e.genre===g).length;
+    const c = document.createElement("div");
+    c.className = "chip" + (g===selected ? " on":"");
+    c.textContent = n ? `${g}（${n}）` : g;
+    c.onclick = ()=>{ selected=g; save(LS.sel,selected); renderChips(); };
+    wrap.appendChild(c);
+  });
+}
+
+function refreshCount(){ $("count").textContent = entries.length ? `溜め込み ${entries.length}本 / 出力 ${outputs.length}回` : "まだ何も溜まっていません"; }
+
+function refreshSources(){
+  const wrap = $("sources"); wrap.innerHTML="";
+  $("srcTitle").style.display = entries.length ? "block" : "none";
+  entries.slice().reverse().forEach(e=>{
+    const div=document.createElement("div"); div.className="src-item";
+    const g=document.createElement("span"); g.className="sg"; g.textContent=e.genre;
+    const s=document.createElement("span"); s.className="stext"; s.textContent = e.text.slice(0,34).replace(/\n/g," ")+"…";
+    const b=document.createElement("button"); b.className="del"; b.textContent="削除";
+    b.onclick=()=>{ entries=entries.filter(x=>x.id!==e.id); save(LS.entries,entries); refreshSources(); refreshCount(); renderChips(); };
+    div.appendChild(g); div.appendChild(s); div.appendChild(b); wrap.appendChild(div);
+  });
+}
+
+function renderOutputs(){
+  const r=$("result"); r.innerHTML="";
+  outputs.slice().reverse().forEach(o=>{
+    const c=document.createElement("div"); c.className="card out";
+    c.innerHTML = `
+      <span class="genre-tag">${o.genre}</span>
+      <h2>${escapeHtml(o.title||"")}</h2>
+      <div class="insight">${escapeHtml(o.insight||"").replace(/\n/g,"<br>")}</div>
+      <div class="meta"><span class="glabel">どこから</span>${escapeHtml(o.basis||"")}</div>
+      <div class="apply"><span class="glabel" style="color:var(--good)">明日から</span>${escapeHtml(o.apply||"")}</div>
+      <div class="when">${fmt(o.createdAt)}</div>`;
+    r.appendChild(c);
+  });
+}
+
+function buildPrompt(genre){
+  const pool = entries.filter(e=>e.genre===genre);
+  const corpus = pool.map((e,i)=>`【素材${i+1}（${fmt(e.createdAt)}）】\n${e.text}`).join("\n\n----\n\n");
+  return `あなたは、むずかしい話をやさしく伝えるのが得意な、聞き上手な解説者です。
+以下は、私が「${genre}」というテーマで集めた、Podcastや動画の文字起こしです。
+
+このテーマの素材【全体】を読み、日々の指針になる「教訓」を1つ選んで伝えてください。
+
+# いちばん大事なこと（読みやすさ最優先）
+- 中学生でもスッと頭に入る、やさしい言葉で書く。むずかしい専門用語は避ける。どうしても使うなら一言で説明を添える。
+- 一文を短く。漢語や言い回しを詰め込まない。声に出して読めるくらい自然に。
+- 「結局どういうこと？」が一読で残るように。
+- ただし内容は薄くしない。その素材ならではの具体的な気づきは必ず残す。たとえ話や身近な具体例でかみ砕く。
+- ありきたりな一般論や、聞けば当たり前の話は避ける。
+
+# 出力（必ずJSON。日本語）
+{
+ "genre": "${genre}",
+ "title": "ひと言で言い切る教訓（やさしい言葉で20字前後）",
+ "insight": "教訓の中身。やさしい言葉で3〜5文。たとえ話や身近な例を交えて。",
+ "basis": "どの話から気づいたか（やさしく一言で）",
+ "apply": "明日からどう活かすか、具体的な一文で"
+}
+
+# 素材（テーマ：${genre}）
+${corpus}`;
+}
+
+async function callGemini(genre, onStatus, attempt=0){
+  const key = localStorage.getItem(LS.key);
+  if(!key){ throw new Error("APIキーが未設定です"); }
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+  const body = {
+    contents:[{parts:[{text: buildPrompt(genre)}]}],
+    generationConfig:{ responseMimeType:"application/json", temperature:0.8 }
+  };
+  let res;
+  try{
+    res = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  }catch(e){
+    if(attempt < 4){ if(onStatus) onStatus(`接続待ち…再試行 (${attempt+1}/4)`); await sleep(1500*(attempt+1)); return callGemini(genre,onStatus,attempt+1); }
+    throw new Error("通信エラー。電波の良い場所で再試行してください");
+  }
+  if((res.status===503 || res.status===429) && attempt < 4){
+    if(onStatus) onStatus(`Geminiが混雑中…自動で再試行 (${attempt+1}/4)`);
+    await sleep(2000*(attempt+1));
+    return callGemini(genre, onStatus, attempt+1);
+  }
+  if(!res.ok){ const t=await res.text(); throw new Error("API エラー "+res.status+"："+t.slice(0,160)); }
+  const data = await res.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if(!text){ throw new Error("空の応答が返りました"); }
+  return JSON.parse(text);
+}
+
+async function generateFor(genre, card){
+  $("save").disabled = true;
+  const setStatus = msg => card.innerHTML = `<div class="loading"><span class="spin"></span>${escapeHtml(msg)}</div>`;
+  setStatus(`「${genre}」の中から教訓を考えています…`);
+  try{
+    const o = await callGemini(genre, setStatus);
+    o.id = Date.now()+"_"+Math.random().toString(36).slice(2,7); o.createdAt = Date.now(); o.genre = genre;
+    outputs.push(o); save(LS.outputs, outputs);
+    card.remove();
+    renderOutputs();
+    refreshCount();
+  }catch(err){
+    card.innerHTML = `<div class="err">⚠️ ${escapeHtml(err.message)}</div>`;
+    const b = document.createElement("button");
+    b.textContent = "もう一度ためす"; b.style.marginTop = "10px";
+    b.onclick = () => generateFor(genre, card);
+    card.appendChild(b);
+  }finally{
+    $("save").disabled = false;
+  }
+}
+
+async function onSave(){
+  const txt = $("input").value.trim();
+  if(!txt){ return; }
+  if(!localStorage.getItem(LS.key)){ $("setup").open=true; alert("先にGemini APIキーを設定してください"); return; }
+
+  const genre = selected;
+  // 1) 選んだジャンルのタブに追加
+  const entry = {id:Date.now()+"_"+Math.random().toString(36).slice(2,7), text:txt, genre, createdAt:Date.now()};
+  entries.push(entry); save(LS.entries, entries);
+  $("input").value=""; renderChips(); refreshSources(); refreshCount();
+
+  // 2) そのタブに溜まった内容全体から教訓を生成
+  const card = document.createElement("div");
+  card.className = "card";
+  $("result").prepend(card);
+  await generateFor(genre, card);
+}
+
+$("saveKey").onclick=()=>{
+  const v=$("apiKey").value.trim();
+  if(!v){ return; }
+  localStorage.setItem(LS.key, v); $("apiKey").value="";
+  refreshKeyUI();
+};
+$("save").onclick=onSave;
+
+// 初期描画
+refreshKeyUI(); renderChips(); refreshCount(); refreshSources(); renderOutputs();
+</script>
+</body>
+</html>
