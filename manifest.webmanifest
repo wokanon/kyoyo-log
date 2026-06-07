@@ -1,0 +1,12 @@
+{
+  "name": "教養ログ",
+  "short_name": "教養ログ",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#f5f3ee",
+  "theme_color": "#7a6a4f",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

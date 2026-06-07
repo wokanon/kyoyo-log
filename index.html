@@ -3,7 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>教養ログ（試作）</title>
+<title>教養ログ</title>
+<!-- ホーム画面アプリ化（iOSのデータ消去を受けにくくする） -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="教養ログ">
+<meta name="theme-color" content="#7a6a4f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
 <style>
   :root{
     --bg:#f5f3ee; --card:#ffffff; --ink:#2b2722; --sub:#8a8276;
@@ -164,7 +172,6 @@ function renderOutputs(){
       <h2>${escapeHtml(o.title||"")}</h2>
       <div class="insight">${escapeHtml(o.insight||"").replace(/\n/g,"<br>")}</div>
       <div class="meta"><span class="glabel">どこから</span>${escapeHtml(o.basis||"")}</div>
-      <div class="apply"><span class="glabel" style="color:var(--good)">明日から</span>${escapeHtml(o.apply||"")}</div>
       <div class="when">${fmt(o.createdAt)}</div>`;
     r.appendChild(c);
   });
@@ -189,40 +196,64 @@ function buildPrompt(genre){
 {
  "genre": "${genre}",
  "title": "ひと言で言い切る教訓（やさしい言葉で20字前後）",
- "insight": "教訓の中身。やさしい言葉で3〜5文。たとえ話や身近な例を交えて。",
- "basis": "どの話から気づいたか（やさしく一言で）",
- "apply": "明日からどう活かすか、具体的な一文で"
+ "insight": "教訓の中身。やさしい言葉で4〜6文。たとえ話や身近な例を交えて、最後まで読むと腑に落ちるように。",
+ "basis": "どの話から気づいたか（やさしく一言で）"
 }
 
 # 素材（テーマ：${genre}）
 ${corpus}`;
 }
 
+const MAX_TRY = 5;
 async function callGemini(genre, onStatus, attempt=0){
   const key = localStorage.getItem(LS.key);
   if(!key){ throw new Error("APIキーが未設定です"); }
+  const retry = async (msg) => { if(onStatus) onStatus(`${msg} (${attempt+1}/${MAX_TRY})`); await sleep(1500*(attempt+1)); return callGemini(genre,onStatus,attempt+1); };
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
   const body = {
     contents:[{parts:[{text: buildPrompt(genre)}]}],
     generationConfig:{ responseMimeType:"application/json", temperature:0.8 }
   };
+
+  // --- 通信 ---
   let res;
   try{
     res = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
   }catch(e){
-    if(attempt < 4){ if(onStatus) onStatus(`接続待ち…再試行 (${attempt+1}/4)`); await sleep(1500*(attempt+1)); return callGemini(genre,onStatus,attempt+1); }
-    throw new Error("通信エラー。電波の良い場所で再試行してください");
+    if(attempt < MAX_TRY) return retry("接続待ち…再試行");
+    throw new Error("通信できませんでした。電波の良い場所でもう一度お試しください");
   }
-  if((res.status===503 || res.status===429) && attempt < 4){
-    if(onStatus) onStatus(`Geminiが混雑中…自動で再試行 (${attempt+1}/4)`);
-    await sleep(2000*(attempt+1));
-    return callGemini(genre, onStatus, attempt+1);
+
+  // --- キーの問題は再試行しない ---
+  if(res.status===400 || res.status===401 || res.status===403){
+    throw new Error("APIキーが正しくないようです。⚙️設定を見直してください");
   }
-  if(!res.ok){ const t=await res.text(); throw new Error("API エラー "+res.status+"："+t.slice(0,160)); }
-  const data = await res.json();
+  // --- 混雑・一時障害は自動リトライ ---
+  if((res.status===429 || res.status>=500) && attempt < MAX_TRY){
+    return retry("Geminiが混雑中…自動で再試行");
+  }
+  if(!res.ok){
+    if(attempt < MAX_TRY) return retry("エラー、再試行");
+    throw new Error("エラーが続いています（"+res.status+"）。少し時間をおいて再試行してください");
+  }
+
+  // --- 応答の読み取り ---
+  let data;
+  try{ data = await res.json(); }
+  catch(e){ if(attempt < MAX_TRY) return retry("応答待ち…再試行"); throw new Error("応答を読み取れませんでした。もう一度お試しください"); }
+
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if(!text){ throw new Error("空の応答が返りました"); }
-  return JSON.parse(text);
+  if(!text){
+    if(attempt < MAX_TRY) return retry("生成し直し中");
+    throw new Error("うまく生成できませんでした。素材を少し変えてお試しください");
+  }
+
+  // --- 形が崩れていたら作り直し ---
+  try{ return JSON.parse(text); }
+  catch(e){
+    if(attempt < MAX_TRY) return retry("整え直し中");
+    throw new Error("出力の形が崩れました。もう一度お試しください");
+  }
 }
 
 async function generateFor(genre, card){
