@@ -12,35 +12,55 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon.svg">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
+<script>
+  // 描画前にテーマを当てて、明→暗のチラつきを防ぐ
+  (function(){ try{
+    var t = JSON.parse(localStorage.getItem("kyoyo_theme"));
+    if(t!=="dark" && t!=="light"){ t = (window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light"; }
+    document.documentElement.setAttribute("data-theme", t);
+  }catch(e){} })();
+</script>
 <style>
   :root{
     --bg:#f5f3ee; --card:#ffffff; --ink:#2b2722; --sub:#8a8276;
     --accent:#7a6a4f; --line:#e7e2d8; --good:#3c7a5a; --warn:#b6553f;
+    --chipbg:#fcfbf9; --headerbg:rgba(245,243,238,.92);
+  }
+  :root[data-theme="dark"]{
+    --bg:#1b1916; --card:#262320; --ink:#ece7dd; --sub:#9c9486;
+    --accent:#bb9d63; --line:#3a352e; --good:#6bb892; --warn:#d98a6e;
+    --chipbg:#2f2b26; --headerbg:rgba(27,25,22,.92);
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   body{
     margin:0; font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
     background:var(--bg); color:var(--ink); line-height:1.8;
     padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+    transition:background .2s ease, color .2s ease;
   }
   header{
     padding:16px 18px 12px; position:sticky; top:0; z-index:5;
-    background:rgba(245,243,238,.92); backdrop-filter:blur(8px);
+    background:var(--headerbg); backdrop-filter:blur(8px);
     border-bottom:1px solid var(--line);
   }
+  .htop{display:flex; align-items:flex-start; justify-content:space-between; gap:10px;}
   h1{font-size:18px; margin:0; letter-spacing:.04em;}
+  #themeBtn{
+    flex:0 0 auto; width:auto; background:transparent; border:1px solid var(--line);
+    color:var(--ink); font-size:18px; padding:6px 10px; border-radius:10px; line-height:1;
+  }
   .hint{font-size:12px; color:var(--sub); margin-top:2px;}
   main{max-width:720px; margin:0 auto; padding:14px 14px 80px;}
   .card{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:14px;}
   textarea{
     width:100%; min-height:120px; border:1px solid var(--line); border-radius:10px;
-    padding:12px; font-size:16px; font-family:inherit; resize:vertical; background:#fcfbf9; color:var(--ink);
+    padding:12px; font-size:16px; font-family:inherit; resize:vertical; background:var(--chipbg); color:var(--ink);
   }
   .label-sm{font-size:12px; color:var(--sub); margin:14px 0 8px;}
   .chips{display:flex; flex-wrap:wrap; gap:8px;}
   .chip{
     font-size:13px; font-weight:600; padding:8px 12px; border-radius:999px;
-    border:1px solid var(--line); background:#fcfbf9; color:var(--sub); cursor:pointer;
+    border:1px solid var(--line); background:var(--chipbg); color:var(--sub); cursor:pointer;
   }
   .chip.on{background:var(--accent); color:#fff; border-color:var(--accent);}
   .row{display:flex; gap:10px; align-items:center; margin-top:14px;}
@@ -61,7 +81,13 @@
   @keyframes spin{to{transform:rotate(360deg)}}
   details.setup{margin-bottom:14px;}
   details.setup summary{font-size:13px; color:var(--sub); cursor:pointer; padding:6px 0;}
-  input[type=password]{width:100%; border:1px solid var(--line); border-radius:10px; padding:11px; font-size:15px; margin-top:8px; background:#fcfbf9;}
+  input[type=password]{width:100%; border:1px solid var(--line); border-radius:10px; padding:11px; font-size:15px; margin-top:8px; background:var(--chipbg); color:var(--ink);}
+  #toast{
+    position:fixed; left:50%; bottom:28px; transform:translateX(-50%) translateY(20px);
+    background:var(--accent); color:#fff; padding:11px 18px; border-radius:999px; font-size:13.5px; font-weight:600;
+    box-shadow:0 6px 20px rgba(0,0,0,.18); opacity:0; pointer-events:none; transition:opacity .25s, transform .25s; z-index:20; max-width:90vw; text-align:center;
+  }
+  #toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
   .small{font-size:12px; color:var(--sub);}
   .count{font-size:12px; color:var(--sub); text-align:center; margin:6px 0 0;}
   .err{color:var(--warn); font-size:13px; margin-top:8px;}
@@ -74,9 +100,14 @@
 </head>
 <body>
 <header>
-  <h1>教養ログ</h1>
+  <div class="htop">
+    <h1>教養ログ</h1>
+    <button id="themeBtn" title="表示モード切り替え">🌙</button>
+  </div>
   <div class="hint">文字起こしを貼り、ジャンルを選んで保存 → そのジャンルの中から教訓が出ます</div>
 </header>
+
+<div id="toast"></div>
 
 <main>
   <details class="setup" id="setup">
@@ -111,7 +142,8 @@
 <script>
 const GENRES = ["人間・世間","知識・教養","地理・歴史","ビジネス・企業","AI・Tech"];
 const LS = {
-  key:"kyoyo_apikey", entries:"kyoyo_entries", outputs:"kyoyo_outputs", sel:"kyoyo_sel"
+  key:"kyoyo_apikey", entries:"kyoyo_entries", outputs:"kyoyo_outputs", sel:"kyoyo_sel",
+  theme:"kyoyo_theme", count:"kyoyo_savecount"
 };
 const $ = id => document.getElementById(id);
 const load = (k,def) => { try{return JSON.parse(localStorage.getItem(k)) ?? def;}catch(e){return def;} };
@@ -121,6 +153,7 @@ const sleep = ms => new Promise(r=>setTimeout(r, ms));
 let entries = load(LS.entries, []);   // {id, text, genre, createdAt}
 let outputs = load(LS.outputs, []);   // {id, genre, title, insight, basis, apply, createdAt}
 let selected = load(LS.sel, GENRES[0]);
+let saveCount = load(LS.count, 0);
 
 // 旧データ（ジャンル無し）を移行
 let migrated=false;
@@ -129,6 +162,24 @@ if(migrated) save(LS.entries, entries);
 
 function fmt(ts){ const d=new Date(ts); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
 function escapeHtml(s){ return String(s).replace(/[&<>]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m])); }
+
+// テーマ
+function applyTheme(t){
+  document.documentElement.setAttribute("data-theme", t);
+  $("themeBtn").textContent = (t==="dark") ? "☀️" : "🌙";
+}
+function toggleTheme(){
+  const cur = document.documentElement.getAttribute("data-theme")==="dark" ? "dark" : "light";
+  const next = cur==="dark" ? "light" : "dark";
+  save(LS.theme, next); applyTheme(next);
+}
+
+// 軽いお知らせ
+let toastTimer=null;
+function toast(msg){
+  const el=$("toast"); el.textContent=msg; el.classList.add("show");
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove("show"), 2600);
+}
 
 function refreshKeyUI(){
   const k = localStorage.getItem(LS.key);
@@ -289,7 +340,14 @@ async function onSave(){
   entries.push(entry); save(LS.entries, entries);
   $("input").value=""; renderChips(); refreshSources(); refreshCount();
 
-  // 2) そのタブに溜まった内容全体から教訓を生成
+  // 2) 2回の保存につき1回だけ教訓を生成する
+  saveCount = saveCount + 1; save(LS.count, saveCount);
+  if(saveCount % 2 !== 0){
+    toast("保存しました（次の保存で教訓が出ます）");
+    return;
+  }
+
+  // 生成回：そのタブに溜まった内容全体から教訓を生成
   const card = document.createElement("div");
   card.className = "card";
   $("result").prepend(card);
@@ -303,8 +361,10 @@ $("saveKey").onclick=()=>{
   refreshKeyUI();
 };
 $("save").onclick=onSave;
+$("themeBtn").onclick=toggleTheme;
 
 // 初期描画
+applyTheme(document.documentElement.getAttribute("data-theme")==="dark" ? "dark" : "light");
 refreshKeyUI(); renderChips(); refreshCount(); refreshSources(); renderOutputs();
 </script>
 </body>
