@@ -81,7 +81,16 @@
   @keyframes spin{to{transform:rotate(360deg)}}
   details.setup{margin-bottom:14px;}
   details.setup summary{font-size:13px; color:var(--sub); cursor:pointer; padding:6px 0;}
-  input[type=password]{width:100%; border:1px solid var(--line); border-radius:10px; padding:11px; font-size:15px; margin-top:8px; background:var(--chipbg); color:var(--ink);}
+  input[type=password],input[type=text]{width:100%; border:1px solid var(--line); border-radius:10px; padding:11px; font-size:15px; margin-top:8px; background:var(--chipbg); color:var(--ink);}
+  #search{margin-top:0; font-size:16px;}
+  .tagcloud{display:flex; flex-wrap:wrap; gap:7px; margin-top:12px;}
+  .tag{font-size:12.5px; font-weight:600; padding:5px 11px; border-radius:999px; border:1px solid var(--line); background:var(--chipbg); color:var(--accent); cursor:pointer;}
+  .tag.on{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .out .tags{display:flex; flex-wrap:wrap; gap:7px; margin-top:12px;}
+  .out .tags .tag{font-size:12px;}
+  .filterinfo{font-size:12.5px; color:var(--sub); margin-top:12px; display:none; align-items:center; gap:10px;}
+  .filterinfo button{flex:0 0 auto; width:auto; background:var(--chipbg); color:var(--ink); border:1px solid var(--line); padding:5px 12px; font-size:12.5px;}
+  .noresult{text-align:center; color:var(--sub); font-size:13px; padding:18px 0;}
   #toast{
     position:fixed; left:50%; bottom:28px; transform:translateX(-50%) translateY(20px);
     background:var(--accent); color:#fff; padding:11px 18px; border-radius:999px; font-size:13.5px; font-weight:600;
@@ -131,6 +140,12 @@
     </div>
   </div>
 
+  <div class="card" id="searchArea" style="display:none">
+    <input type="text" id="search" placeholder="🔍 教訓を検索（言葉・タグ）">
+    <div class="tagcloud" id="tagcloud"></div>
+    <div class="filterinfo" id="filterInfo"></div>
+  </div>
+
   <div id="result"></div>
 
   <div class="count" id="count"></div>
@@ -154,6 +169,7 @@ let entries = load(LS.entries, []);   // {id, text, genre, createdAt}
 let outputs = load(LS.outputs, []);   // {id, genre, title, insight, basis, apply, createdAt}
 let selected = load(LS.sel, GENRES[0]);
 let saveCount = load(LS.count, 0);
+let query = "";
 
 // 旧データ（ジャンル無し）を移行
 let migrated=false;
@@ -214,16 +230,71 @@ function refreshSources(){
   });
 }
 
+function setQuery(q){
+  query = q;
+  $("search").value = q;
+  renderOutputs();
+  window.scrollTo({top:0, behavior:"smooth"});
+}
+
+function matchesQuery(o){
+  if(!query) return true;
+  const q = query.toLowerCase();
+  const hay = [o.title, o.insight, o.basis, o.genre, (o.tags||[]).join(" ")].join(" ").toLowerCase();
+  return hay.includes(q);
+}
+
+function renderTagCloud(){
+  const set = new Set();
+  outputs.forEach(o => (o.tags||[]).forEach(t => set.add(t)));
+  const cloud = $("tagcloud"); cloud.innerHTML = "";
+  [...set].forEach(t=>{
+    const el = document.createElement("span");
+    el.className = "tag" + (query.toLowerCase()===t.toLowerCase() ? " on" : "");
+    el.textContent = "#"+t;
+    el.onclick = ()=> setQuery(query.toLowerCase()===t.toLowerCase() ? "" : t);
+    cloud.appendChild(el);
+  });
+}
+
 function renderOutputs(){
-  const r=$("result"); r.innerHTML="";
-  outputs.slice().reverse().forEach(o=>{
-    const c=document.createElement("div"); c.className="card out";
+  $("searchArea").style.display = outputs.length ? "block" : "none";
+  renderTagCloud();
+
+  const info = $("filterInfo");
+  const list = outputs.filter(matchesQuery).reverse();
+  if(query){
+    info.style.display = "flex";
+    info.innerHTML = `「${escapeHtml(query)}」で絞り込み中：${list.length}件 <button id="clearFilter">クリア</button>`;
+    $("clearFilter").onclick = ()=> setQuery("");
+  } else {
+    info.style.display = "none";
+  }
+
+  const r = $("result"); r.innerHTML = "";
+  if(outputs.length && list.length===0){
+    r.innerHTML = `<div class="noresult">該当する教訓がありません</div>`;
+    return;
+  }
+  list.forEach(o=>{
+    const c = document.createElement("div"); c.className = "card out";
     c.innerHTML = `
       <span class="genre-tag">${o.genre}</span>
       <h2>${escapeHtml(o.title||"")}</h2>
       <div class="insight">${escapeHtml(o.insight||"").replace(/\n/g,"<br>")}</div>
       <div class="meta"><span class="glabel">どこから</span>${escapeHtml(o.basis||"")}</div>
+      <div class="tags"></div>
       <div class="when">${fmt(o.createdAt)}</div>`;
+    const tagsEl = c.querySelector(".tags");
+    if(o.tags && o.tags.length){
+      o.tags.forEach(t=>{
+        const s = document.createElement("span"); s.className = "tag"; s.textContent = "#"+t;
+        s.onclick = ()=> setQuery(t);
+        tagsEl.appendChild(s);
+      });
+    } else {
+      tagsEl.style.display = "none";
+    }
     r.appendChild(c);
   });
 }
@@ -248,7 +319,8 @@ function buildPrompt(genre){
  "genre": "${genre}",
  "title": "ひと言で言い切る教訓（やさしい言葉で20字前後）",
  "insight": "教訓の中身。やさしい言葉で4〜6文。たとえ話や身近な例を交えて、最後まで読むと腑に落ちるように。",
- "basis": "どの話から気づいたか（やさしく一言で）"
+ "basis": "どの話から気づいたか（やさしく一言で）",
+ "tags": ["この教訓を後で探しやすくする短いキーワードを2〜4個。日本語の単語。記号や#は付けない。例: 習慣, 意思決定, お金"]
 }
 
 # 素材（テーマ：${genre}）
@@ -340,10 +412,11 @@ async function onSave(){
   entries.push(entry); save(LS.entries, entries);
   $("input").value=""; renderChips(); refreshSources(); refreshCount();
 
-  // 2) 2回の保存につき1回だけ教訓を生成する
+  // 2) 3回の保存につき1回だけ教訓を生成する
   saveCount = saveCount + 1; save(LS.count, saveCount);
-  if(saveCount % 2 !== 0){
-    toast("保存しました（次の保存で教訓が出ます）");
+  if(saveCount % 3 !== 0){
+    const rem = 3 - (saveCount % 3);
+    toast(`保存しました（あと${rem}回で教訓が出ます）`);
     return;
   }
 
@@ -362,6 +435,7 @@ $("saveKey").onclick=()=>{
 };
 $("save").onclick=onSave;
 $("themeBtn").onclick=toggleTheme;
+$("search").oninput = (e)=>{ query = e.target.value.trim(); renderOutputs(); };
 
 // 初期描画
 applyTheme(document.documentElement.getAttribute("data-theme")==="dark" ? "dark" : "light");
