@@ -91,6 +91,12 @@
   .filterinfo{font-size:12.5px; color:var(--sub); margin-top:12px; display:none; align-items:center; gap:10px;}
   .filterinfo button{flex:0 0 auto; width:auto; background:var(--chipbg); color:var(--ink); border:1px solid var(--line); padding:5px 12px; font-size:12.5px;}
   .noresult{text-align:center; color:var(--sub); font-size:13px; padding:18px 0;}
+  .modebar{display:flex; gap:8px; margin-bottom:14px;}
+  .modebtn{flex:1; background:var(--chipbg); color:var(--sub); border:1px solid var(--line); font-weight:600; font-size:14px; padding:11px;}
+  .modebtn.on{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .nextinfo{font-size:12.5px; color:var(--sub); text-align:center; margin-top:10px;}
+  .mentor .q{font-size:14px; color:var(--accent); font-weight:700; border-left:3px solid var(--accent); padding-left:10px; margin-bottom:12px; white-space:pre-wrap; line-height:1.6;}
+  .mentor .a{font-size:15.5px;}
   #toast{
     position:fixed; left:50%; bottom:28px; transform:translateX(-50%) translateY(20px);
     background:var(--accent); color:#fff; padding:11px 18px; border-radius:999px; font-size:13.5px; font-weight:600;
@@ -131,34 +137,54 @@
     </div>
   </details>
 
-  <div class="card">
-    <textarea id="input" placeholder="ここに文字起こしを貼り付け"></textarea>
-    <div class="label-sm">このメモを入れるジャンル（タブ）</div>
-    <div class="chips" id="chips"></div>
-    <div class="row">
-      <button id="save">保存して教訓を出す</button>
+  <div class="modebar">
+    <button class="modebtn on" data-mode="log" id="modeLog">📥 ためる・教訓</button>
+    <button class="modebtn" data-mode="mentor" id="modeMentor">💬 相談</button>
+  </div>
+
+  <div id="viewLog">
+    <div class="card">
+      <textarea id="input" placeholder="ここに文字起こしを貼り付け"></textarea>
+      <div class="label-sm">このメモを入れるジャンル（タブ）</div>
+      <div class="chips" id="chips"></div>
+      <div class="row">
+        <button id="save">保存して教訓を出す</button>
+      </div>
+      <div class="nextinfo" id="nextInfo"></div>
     </div>
+
+    <div class="card" id="searchArea" style="display:none">
+      <input type="text" id="search" placeholder="🔍 教訓を検索（言葉・タグ）">
+      <div class="tagcloud" id="tagcloud"></div>
+      <div class="filterinfo" id="filterInfo"></div>
+    </div>
+
+    <div id="result"></div>
+
+    <div class="count" id="count"></div>
+
+    <div class="sectiontitle" id="srcTitle" style="display:none">溜め込み（タップで削除可）</div>
+    <div id="sources"></div>
   </div>
 
-  <div class="card" id="searchArea" style="display:none">
-    <input type="text" id="search" placeholder="🔍 教訓を検索（言葉・タグ）">
-    <div class="tagcloud" id="tagcloud"></div>
-    <div class="filterinfo" id="filterInfo"></div>
+  <div id="viewMentor" style="display:none">
+    <div class="card">
+      <div class="label-sm" style="margin-top:0">これまで溜めた記録をふまえて、メンターが相談に答えます</div>
+      <textarea id="mentorInput" placeholder="今の悩み・迷っていること・考えたいことを書いてください"></textarea>
+      <div class="row">
+        <button id="mentorBtn">相談する</button>
+      </div>
+      <div class="small" id="mentorNote"></div>
+    </div>
+    <div id="mentorResult"></div>
   </div>
-
-  <div id="result"></div>
-
-  <div class="count" id="count"></div>
-
-  <div class="sectiontitle" id="srcTitle" style="display:none">溜め込み（タップで削除可）</div>
-  <div id="sources"></div>
 </main>
 
 <script>
 const GENRES = ["人間・世間","知識・教養","地理・歴史","ビジネス・企業","AI・Tech"];
 const LS = {
   key:"kyoyo_apikey", entries:"kyoyo_entries", outputs:"kyoyo_outputs", sel:"kyoyo_sel",
-  theme:"kyoyo_theme", count:"kyoyo_savecount"
+  theme:"kyoyo_theme", count:"kyoyo_savecount", mentor:"kyoyo_mentor", mode:"kyoyo_mode"
 };
 const $ = id => document.getElementById(id);
 const load = (k,def) => { try{return JSON.parse(localStorage.getItem(k)) ?? def;}catch(e){return def;} };
@@ -170,6 +196,9 @@ let outputs = load(LS.outputs, []);   // {id, genre, title, insight, basis, appl
 let selected = load(LS.sel, GENRES[0]);
 let saveCount = load(LS.count, 0);
 let query = "";
+let mentorHistory = load(LS.mentor, []);   // {id, q, a, createdAt}
+let mode = load(LS.mode, "log");
+const CYCLE = 4;   // 何回の保存につき1回 教訓を出すか
 
 // 旧データ（ジャンル無し）を移行
 let migrated=false;
@@ -327,15 +356,38 @@ function buildPrompt(genre){
 ${corpus}`;
 }
 
+function buildMentorPrompt(question){
+  const corpus = entries.length
+    ? entries.map((e,i)=>`【記録${i+1}・${e.genre}（${fmt(e.createdAt)}）】\n${e.text}`).join("\n\n----\n\n")
+    : "（まだ記録がありません）";
+  return `あなたは、私のことをよく知る、聡明で温かいメンターです。
+以下は、私がこれまで集めてきたPodcastや動画の文字起こし（学びの記録）です。私が大切だと思って溜めてきた、価値観や関心の蓄積です。
+
+# 私の相談
+「${question}」
+
+# 答え方のお願い
+- 上の【私の蓄積】をふまえ、私の関心や価値観に寄り添って答えてください。
+- できれば蓄積の中の具体的な話に触れ、「前にあなたが残したこの話のように」と結びつけてください（記録が無ければ一般論でも構いません）。
+- 説教くさくならず、やさしい言葉で。短い段落で、声に出して読めるくらい自然に。
+- 一般論で終わらせず、私の状況に踏み込んだ具体的な視点や助言を。
+- 最後に、そっと背中を押すひと言を添えてください。
+- 出力はそのままの文章で（JSONや箇条書きの記号は不要）。
+
+# 私の蓄積
+${corpus}`;
+}
+
 const MAX_TRY = 5;
-async function callGemini(genre, onStatus, attempt=0){
+// Gemini 呼び出しの共通処理（jsonMode=true なら JSON を返し、false なら文章を返す）
+async function geminiCall(prompt, jsonMode, onStatus, attempt=0){
   const key = localStorage.getItem(LS.key);
   if(!key){ throw new Error("APIキーが未設定です"); }
-  const retry = async (msg) => { if(onStatus) onStatus(`${msg} (${attempt+1}/${MAX_TRY})`); await sleep(1500*(attempt+1)); return callGemini(genre,onStatus,attempt+1); };
+  const retry = async (msg) => { if(onStatus) onStatus(`${msg} (${attempt+1}/${MAX_TRY})`); await sleep(1500*(attempt+1)); return geminiCall(prompt,jsonMode,onStatus,attempt+1); };
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
   const body = {
-    contents:[{parts:[{text: buildPrompt(genre)}]}],
-    generationConfig:{ responseMimeType:"application/json", temperature:0.8 }
+    contents:[{parts:[{text: prompt}]}],
+    generationConfig: jsonMode ? { responseMimeType:"application/json", temperature:0.8 } : { temperature:0.85 }
   };
 
   // --- 通信 ---
@@ -368,16 +420,21 @@ async function callGemini(genre, onStatus, attempt=0){
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if(!text){
     if(attempt < MAX_TRY) return retry("生成し直し中");
-    throw new Error("うまく生成できませんでした。素材を少し変えてお試しください");
+    throw new Error("うまく生成できませんでした。もう一度お試しください");
   }
 
-  // --- 形が崩れていたら作り直し ---
+  if(!jsonMode) return text.trim();
+
+  // --- JSON の形が崩れていたら作り直し ---
   try{ return JSON.parse(text); }
   catch(e){
     if(attempt < MAX_TRY) return retry("整え直し中");
     throw new Error("出力の形が崩れました。もう一度お試しください");
   }
 }
+
+const callGemini = (genre, onStatus) => geminiCall(buildPrompt(genre), true, onStatus);
+const callMentor = (question, onStatus) => geminiCall(buildMentorPrompt(question), false, onStatus);
 
 async function generateFor(genre, card){
   $("save").disabled = true;
@@ -412,10 +469,11 @@ async function onSave(){
   entries.push(entry); save(LS.entries, entries);
   $("input").value=""; renderChips(); refreshSources(); refreshCount();
 
-  // 2) 3回の保存につき1回だけ教訓を生成する
+  // 2) CYCLE回の保存につき1回だけ教訓を生成する
   saveCount = saveCount + 1; save(LS.count, saveCount);
-  if(saveCount % 3 !== 0){
-    const rem = 3 - (saveCount % 3);
+  refreshNextInfo();
+  if(saveCount % CYCLE !== 0){
+    const rem = CYCLE - (saveCount % CYCLE);
     toast(`保存しました（あと${rem}回で教訓が出ます）`);
     return;
   }
@@ -427,6 +485,64 @@ async function onSave(){
   await generateFor(genre, card);
 }
 
+function refreshNextInfo(){
+  const rem = CYCLE - (saveCount % CYCLE);
+  $("nextInfo").textContent = (rem===1) ? "次の保存で教訓が出ます" : `あと ${rem} 回の保存で教訓が出ます`;
+}
+
+// メンター（相談）
+function renderMentor(){
+  $("mentorNote").textContent = entries.length
+    ? `これまでの記録 ${entries.length}件 をふまえて答えます`
+    : "まだ記録がありません（一般的な助言になります）";
+  const r = $("mentorResult"); r.innerHTML = "";
+  mentorHistory.slice().reverse().forEach(m=>{
+    const c = document.createElement("div"); c.className = "card mentor";
+    c.innerHTML = `
+      <div class="q">${escapeHtml(m.q)}</div>
+      <div class="a">${escapeHtml(m.a||"").replace(/\n/g,"<br>")}</div>
+      <div class="when">${fmt(m.createdAt)}</div>`;
+    r.appendChild(c);
+  });
+}
+
+async function onMentor(){
+  const q = $("mentorInput").value.trim();
+  if(!q){ return; }
+  if(!localStorage.getItem(LS.key)){ $("setup").open=true; alert("先にGemini APIキーを設定してください"); return; }
+
+  const btn = $("mentorBtn"); btn.disabled = true;
+  const card = document.createElement("div"); card.className = "card";
+  $("mentorResult").prepend(card);
+  const setStatus = msg => card.innerHTML = `<div class="loading"><span class="spin"></span>${escapeHtml(msg)}</div>`;
+  setStatus("これまでの記録をふまえて考えています…");
+  try{
+    const a = await callMentor(q, setStatus);
+    const m = {id:Date.now()+"_"+Math.random().toString(36).slice(2,7), q, a, createdAt:Date.now()};
+    mentorHistory.push(m); save(LS.mentor, mentorHistory);
+    $("mentorInput").value = "";
+    card.remove();
+    renderMentor();
+  }catch(err){
+    card.innerHTML = `<div class="err">⚠️ ${escapeHtml(err.message)}</div>`;
+    const b = document.createElement("button");
+    b.textContent = "もう一度ためす"; b.style.marginTop = "10px";
+    b.onclick = () => { card.remove(); $("mentorInput").value = q; onMentor(); };
+    card.appendChild(b);
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+function setMode(m){
+  mode = m; save(LS.mode, m);
+  $("viewLog").style.display = (m==="log") ? "block" : "none";
+  $("viewMentor").style.display = (m==="mentor") ? "block" : "none";
+  $("modeLog").classList.toggle("on", m==="log");
+  $("modeMentor").classList.toggle("on", m==="mentor");
+  if(m==="mentor") renderMentor();
+}
+
 $("saveKey").onclick=()=>{
   const v=$("apiKey").value.trim();
   if(!v){ return; }
@@ -436,10 +552,14 @@ $("saveKey").onclick=()=>{
 $("save").onclick=onSave;
 $("themeBtn").onclick=toggleTheme;
 $("search").oninput = (e)=>{ query = e.target.value.trim(); renderOutputs(); };
+$("mentorBtn").onclick=onMentor;
+$("modeLog").onclick=()=>setMode("log");
+$("modeMentor").onclick=()=>setMode("mentor");
 
 // 初期描画
 applyTheme(document.documentElement.getAttribute("data-theme")==="dark" ? "dark" : "light");
-refreshKeyUI(); renderChips(); refreshCount(); refreshSources(); renderOutputs();
+refreshKeyUI(); renderChips(); refreshCount(); refreshSources(); renderOutputs(); refreshNextInfo();
+setMode(mode);
 </script>
 </body>
 </html>
