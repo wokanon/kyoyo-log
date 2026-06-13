@@ -20,6 +20,8 @@
     document.documentElement.setAttribute("data-theme", t);
   }catch(e){} })();
 </script>
+<!-- 3台同期用：Supabase クライアント（鍵が未設定なら何もしない） -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root{
     --bg:#f5f3ee; --card:#ffffff; --ink:#2b2722; --sub:#8a8276;
@@ -81,7 +83,8 @@
   @keyframes spin{to{transform:rotate(360deg)}}
   details.setup{margin-bottom:14px;}
   details.setup summary{font-size:13px; color:var(--sub); cursor:pointer; padding:6px 0;}
-  input[type=password],input[type=text]{width:100%; border:1px solid var(--line); border-radius:10px; padding:11px; font-size:15px; margin-top:8px; background:var(--chipbg); color:var(--ink);}
+  input[type=password],input[type=text],input[type=email]{width:100%; border:1px solid var(--line); border-radius:10px; padding:11px; font-size:15px; margin-top:8px; background:var(--chipbg); color:var(--ink);}
+  button.secondary{background:var(--chipbg); color:var(--ink); border:1px solid var(--line);}
   #search{margin-top:0; font-size:16px;}
   .tagcloud{display:flex; flex-wrap:wrap; gap:7px; margin-top:12px;}
   .tag{font-size:12.5px; font-weight:600; padding:5px 11px; border-radius:999px; border:1px solid var(--line); background:var(--chipbg); color:var(--accent); cursor:pointer;}
@@ -136,6 +139,22 @@
       <div class="small" id="keyState"></div>
     </div>
   </details>
+
+  <div class="card" id="syncCard" style="display:none">
+    <div class="small" id="syncState"></div>
+    <div id="loginForm">
+      <input type="email" id="email" placeholder="メールアドレス" autocomplete="username">
+      <input type="password" id="password" placeholder="パスワード（6文字以上）" autocomplete="current-password">
+      <div class="row">
+        <button id="loginBtn">ログイン</button>
+        <button id="signupBtn" class="secondary">新規登録</button>
+      </div>
+    </div>
+    <div id="loggedIn" style="display:none">
+      <div class="row"><button id="logoutBtn" class="secondary">ログアウト</button></div>
+    </div>
+    <div class="small err" id="syncError" style="display:none"></div>
+  </div>
 
   <div class="modebar">
     <button class="modebtn on" data-mode="log" id="modeLog">📥 ためる・教訓</button>
@@ -200,6 +219,15 @@ let mentorHistory = load(LS.mentor, []);   // {id, q, a, createdAt}
 let mode = load(LS.mode, "log");
 const CYCLE = 4;   // 何回の保存につき1回 教訓を出すか
 
+/* ===== 3台同期（Supabase）=====
+   下の2つに Sou_Diary プロジェクトの値を入れると同期が有効になる。
+   未設定（PUT_…のまま）なら、これまで通りローカルだけで動く。 */
+const SUPABASE_URL = "https://icxbyltorjpfexmwxzga.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_6qgfCo_xbhbjb3Lr__j-Yg_Y7Zk2yWH";  // publishable（公開して安全な鍵）
+const syncEnabled = /^https:\/\/.+\.supabase\.co/.test(SUPABASE_URL) && !SUPABASE_ANON_KEY.startsWith("PUT_");
+let sb = null;
+if(syncEnabled && window.supabase){ sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }
+
 // 旧データ（ジャンル無し）を移行
 let migrated=false;
 entries.forEach(e=>{ if(!e.genre){ e.genre = GENRES[0]; migrated=true; } });
@@ -254,7 +282,7 @@ function refreshSources(){
     const g=document.createElement("span"); g.className="sg"; g.textContent=e.genre;
     const s=document.createElement("span"); s.className="stext"; s.textContent = e.text.slice(0,34).replace(/\n/g," ")+"…";
     const b=document.createElement("button"); b.className="del"; b.textContent="削除";
-    b.onclick=()=>{ entries=entries.filter(x=>x.id!==e.id); save(LS.entries,entries); refreshSources(); refreshCount(); renderChips(); };
+    b.onclick=()=>{ entries=entries.filter(x=>x.id!==e.id); save(LS.entries,entries); deleteItemRemote(e.id); refreshSources(); refreshCount(); renderChips(); };
     div.appendChild(g); div.appendChild(s); div.appendChild(b); wrap.appendChild(div);
   });
 }
@@ -443,7 +471,7 @@ async function generateFor(genre, card){
   try{
     const o = await callGemini(genre, setStatus);
     o.id = Date.now()+"_"+Math.random().toString(36).slice(2,7); o.createdAt = Date.now(); o.genre = genre;
-    outputs.push(o); save(LS.outputs, outputs);
+    outputs.push(o); save(LS.outputs, outputs); pushItem("output", o);
     card.remove();
     renderOutputs();
     refreshCount();
@@ -466,7 +494,7 @@ async function onSave(){
   const genre = selected;
   // 1) 選んだジャンルのタブに追加
   const entry = {id:Date.now()+"_"+Math.random().toString(36).slice(2,7), text:txt, genre, createdAt:Date.now()};
-  entries.push(entry); save(LS.entries, entries);
+  entries.push(entry); save(LS.entries, entries); pushItem("entry", entry);
   $("input").value=""; renderChips(); refreshSources(); refreshCount();
 
   // 2) CYCLE回の保存につき1回だけ教訓を生成する
@@ -519,7 +547,7 @@ async function onMentor(){
   try{
     const a = await callMentor(q, setStatus);
     const m = {id:Date.now()+"_"+Math.random().toString(36).slice(2,7), q, a, createdAt:Date.now()};
-    mentorHistory.push(m); save(LS.mentor, mentorHistory);
+    mentorHistory.push(m); save(LS.mentor, mentorHistory); pushItem("mentor", m);
     $("mentorInput").value = "";
     card.remove();
     renderMentor();
@@ -543,6 +571,107 @@ function setMode(m){
   if(m==="mentor") renderMentor();
 }
 
+/* ===== 同期（Supabase）処理 ===== */
+function showSyncError(m){ const e=$("syncError"); if(m){ e.style.display="block"; e.textContent=m; } else { e.style.display="none"; e.textContent=""; } }
+
+async function getSession(){ if(!sb) return null; const { data } = await sb.auth.getSession(); return data.session; }
+
+async function refreshSyncUI(){
+  if(!sb){ $("syncCard").style.display="none"; return; }
+  $("syncCard").style.display="block";
+  const session = await getSession();
+  if(session){
+    $("loginForm").style.display="none";
+    $("loggedIn").style.display="block";
+    $("syncState").textContent = "✅ 同期中：" + session.user.email;
+  } else {
+    $("loginForm").style.display="block";
+    $("loggedIn").style.display="none";
+    $("syncState").textContent = "ログインすると、PC・スマホ2台で記録を共有できます";
+  }
+}
+
+async function pushItem(kind, obj){
+  if(!sb) return;
+  if(!(await getSession())) return;
+  try{
+    await sb.from("kyoyo_items").upsert({
+      id: obj.id, kind, data: obj,
+      created_at: new Date(obj.createdAt || Date.now()).toISOString(),
+      updated_at: new Date().toISOString(),
+      deleted: false
+    });
+  }catch(e){ /* オフライン等は次回のpullで吸収 */ }
+}
+async function deleteItemRemote(id){
+  if(!sb) return;
+  if(!(await getSession())) return;
+  try{ await sb.from("kyoyo_items").update({ deleted:true, updated_at:new Date().toISOString() }).eq("id", id); }catch(e){}
+}
+
+async function pullAndMerge(){
+  if(!sb) return;
+  if(!(await getSession())) return;
+  const { data: rows, error } = await sb.from("kyoyo_items").select("*");
+  if(error){ showSyncError("同期の取得に失敗：" + error.message); return; }
+
+  const tomb = new Set(rows.filter(r=>r.deleted).map(r=>r.id));
+  const active = rows.filter(r=>!r.deleted);
+
+  function mergeKind(kind, localArr){
+    const remoteById = new Map();
+    active.filter(r=>r.kind===kind).forEach(r=> remoteById.set(r.id, r.data));
+    const merged = new Map();
+    remoteById.forEach((v,k)=> merged.set(k, v));         // クラウドを採用
+    const toPush = [];
+    localArr.forEach(o=>{
+      if(tomb.has(o.id)) return;                          // 他端末で削除済み → 捨てる
+      if(!remoteById.has(o.id)){ merged.set(o.id, o); toPush.push(o); }  // 未アップロードのローカル分
+    });
+    const list = [...merged.values()].sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+    return { list, toPush };
+  }
+
+  const e = mergeKind("entry", entries);
+  const o = mergeKind("output", outputs);
+  const m = mergeKind("mentor", mentorHistory);
+
+  entries = e.list; outputs = o.list; mentorHistory = m.list;
+  save(LS.entries, entries); save(LS.outputs, outputs); save(LS.mentor, mentorHistory);
+
+  for(const x of e.toPush) await pushItem("entry", x);    // ローカル専用だった分をクラウドへ
+  for(const x of o.toPush) await pushItem("output", x);
+  for(const x of m.toPush) await pushItem("mentor", x);
+
+  renderChips(); refreshSources(); refreshCount(); renderOutputs(); renderMentor();
+}
+
+async function doLogin(){
+  const email=$("email").value.trim(), password=$("password").value;
+  if(!email || !password){ return; }
+  showSyncError(""); $("loginBtn").disabled=true; $("signupBtn").disabled=true;
+  try{
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if(error){ showSyncError("ログインできません：" + error.message); return; }
+    $("password").value="";
+    await refreshSyncUI(); await pullAndMerge();
+  }finally{ $("loginBtn").disabled=false; $("signupBtn").disabled=false; }
+}
+async function doSignup(){
+  const email=$("email").value.trim(), password=$("password").value;
+  if(!email || !password){ return; }
+  showSyncError(""); $("loginBtn").disabled=true; $("signupBtn").disabled=true;
+  try{
+    const { error } = await sb.auth.signUp({ email, password });
+    if(error){ showSyncError("登録できません：" + error.message); return; }
+    const session = await getSession();
+    if(!session){ showSyncError("登録しました。メール確認が必要な設定の場合は、確認後にログインしてください。"); await refreshSyncUI(); return; }
+    $("password").value="";
+    await refreshSyncUI(); await pullAndMerge();
+  }finally{ $("loginBtn").disabled=false; $("signupBtn").disabled=false; }
+}
+async function doLogout(){ if(sb){ await sb.auth.signOut(); } await refreshSyncUI(); }
+
 $("saveKey").onclick=()=>{
   const v=$("apiKey").value.trim();
   if(!v){ return; }
@@ -555,11 +684,17 @@ $("search").oninput = (e)=>{ query = e.target.value.trim(); renderOutputs(); };
 $("mentorBtn").onclick=onMentor;
 $("modeLog").onclick=()=>setMode("log");
 $("modeMentor").onclick=()=>setMode("mentor");
+$("loginBtn").onclick=doLogin;
+$("signupBtn").onclick=doSignup;
+$("logoutBtn").onclick=doLogout;
 
 // 初期描画
 applyTheme(document.documentElement.getAttribute("data-theme")==="dark" ? "dark" : "light");
 refreshKeyUI(); renderChips(); refreshCount(); refreshSources(); renderOutputs(); refreshNextInfo();
 setMode(mode);
+
+// 同期：ログイン済みなら起動時にクラウドと突き合わせ
+refreshSyncUI().then(()=> pullAndMerge());
 </script>
 </body>
 </html>
