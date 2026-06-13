@@ -100,6 +100,9 @@
   .nextinfo{font-size:12.5px; color:var(--sub); text-align:center; margin-top:10px;}
   .mentor .q{font-size:14px; color:var(--accent); font-weight:700; border-left:3px solid var(--accent); padding-left:10px; margin-bottom:12px; white-space:pre-wrap; line-height:1.6;}
   .mentor .a{font-size:15.5px;}
+  .review{border-color:var(--accent);}
+  .rlabel{display:flex; align-items:center; justify-content:space-between; font-size:12.5px; color:var(--accent); font-weight:700; margin-bottom:8px;}
+  .rlabel button{flex:0 0 auto; width:auto; background:var(--chipbg); color:var(--ink); border:1px solid var(--line); padding:5px 12px; font-size:12.5px;}
   #toast{
     position:fixed; left:50%; bottom:28px; transform:translateX(-50%) translateY(20px);
     background:var(--accent); color:#fff; padding:11px 18px; border-radius:999px; font-size:13.5px; font-weight:600;
@@ -171,6 +174,8 @@
       </div>
       <div class="nextinfo" id="nextInfo"></div>
     </div>
+
+    <div class="card review" id="review" style="display:none"></div>
 
     <div class="card" id="searchArea" style="display:none">
       <input type="text" id="search" placeholder="🔍 教訓を検索（言葉・タグ）">
@@ -312,6 +317,21 @@ function renderTagCloud(){
     el.onclick = ()=> setQuery(query.toLowerCase()===t.toLowerCase() ? "" : t);
     cloud.appendChild(el);
   });
+}
+
+function renderReview(){
+  const el = $("review");
+  if(!outputs.length){ el.style.display = "none"; return; }
+  el.style.display = "block";
+  const o = outputs[Math.floor(Math.random() * outputs.length)];
+  el.innerHTML = `
+    <div class="rlabel">🔁 ふりかえり <button id="reshuffle">別のをみる</button></div>
+    <span class="genre-tag">${o.genre}</span>
+    <h2>${escapeHtml(o.title||"")}</h2>
+    <div class="insight">${escapeHtml(o.insight||"").replace(/\n/g,"<br>")}</div>
+    <div class="meta"><span class="glabel">どこから</span>${escapeHtml(o.basis||"")}</div>
+    <div class="when">${fmt(o.createdAt)}</div>`;
+  $("reshuffle").onclick = renderReview;
 }
 
 function renderOutputs(){
@@ -473,7 +493,7 @@ async function generateFor(genre, card){
     o.id = Date.now()+"_"+Math.random().toString(36).slice(2,7); o.createdAt = Date.now(); o.genre = genre;
     outputs.push(o); save(LS.outputs, outputs); pushItem("output", o);
     card.remove();
-    renderOutputs();
+    renderOutputs(); renderReview();
     refreshCount();
   }catch(err){
     card.innerHTML = `<div class="err">⚠️ ${escapeHtml(err.message)}</div>`;
@@ -643,7 +663,7 @@ async function pullAndMerge(){
   for(const x of o.toPush) await pushItem("output", x);
   for(const x of m.toPush) await pushItem("mentor", x);
 
-  renderChips(); refreshSources(); refreshCount(); renderOutputs(); renderMentor();
+  renderChips(); refreshSources(); refreshCount(); renderOutputs(); renderReview(); renderMentor();
 }
 
 async function doLogin(){
@@ -690,7 +710,7 @@ $("logoutBtn").onclick=doLogout;
 
 // 初期描画
 applyTheme(document.documentElement.getAttribute("data-theme")==="dark" ? "dark" : "light");
-refreshKeyUI(); renderChips(); refreshCount(); refreshSources(); renderOutputs(); refreshNextInfo();
+refreshKeyUI(); renderChips(); refreshCount(); refreshSources(); renderOutputs(); renderReview(); refreshNextInfo();
 setMode(mode);
 
 // 同期：ログイン済みなら起動時にクラウドと突き合わせ
